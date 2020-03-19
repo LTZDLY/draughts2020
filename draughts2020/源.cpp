@@ -9,20 +9,19 @@
 #define DRAUGHTS_WHITE -1
 #define DRAUGHTS_BLACK_KING 2
 #define DRAUGHTS_WHITE_KING -2
-#define DEPTH 6
+#define DRAUGHTS_DEPTH 6
 #define MAX(a,b) (a)>(b)?(a):(b)
 #define MIN(a,b) (a)<(b)?(a):(b)
 
 static int Draughts_my_turn = 0;//记录游戏中己方所行棋
 static long Draughts_times = 0;//代表该局面下搜索到达所需的深度时的分支总数
 static double Draughts_scorepast;//代表深度为1时检查是否改变的估值
-static char Draughts_seem[10] = {};//代表深度为1模拟走棋时缓存的坐标
-static char Draughts_dir[100] = {};//代表录入或者需输出的坐标
+static int Draughts_dir_now[2][2] = { 0 };//代表深度为1模拟走棋时缓存的坐标
 static int Draughts_move_dir[4][2] = { {-1, -1}, {-1, 1}, {1, -1}, {1, 1} };
 static int Draughts_eat_dir[4][2] = { {-2, -2}, {-2, 2}, {2, -2}, {2, 2} };
 									/*   ↖        ↗      ↙        ↘  */
 
-struct draughts_dfs_reference {
+static struct draughts_dfs_reference {
 	int board_reference[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE] = { 0 };//拷贝棋盘
 	int flag_eat[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE] = { 0 };//吃子标记
 	int way_now[10][2] = { 0 };//当前路径
@@ -31,10 +30,16 @@ struct draughts_dfs_reference {
 	int depth = 0;//当前搜索深度
 	double score_before = 0;//当前层分数
 };//专门用来存放dfs方法所需传递的参数的结构体
-struct draughts_command {
+static struct draughts_command {
 	int step = 0;
 	int dir[10][2] = { 0 };
-}input_my;//用于记录我方走子的结构体
+}Input_my;//用于记录我方走子的结构体
+static struct draughts_info {
+	int num_black = 0;
+	int num_white = 0;
+	int dir_black[DRAUGHTS_CHESS_NUM][3] = { 0 };
+	int dir_white[DRAUGHTS_CHESS_NUM][3] = { 0 };
+};//用于记录当前棋盘上所有棋子个数和坐标
 
 int Draughts_board_main[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE] = { 0,-1, 0,-1, 0,-1, 0,-1,
 																	 -1, 0,-1, 0,-1, 0,-1, 0,
@@ -47,6 +52,18 @@ int Draughts_board_main[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE] = { 0,-1, 0,-1
 static int draughts_is_in_bound(int x, int y) {
 	return (x >= 0 && x < DRAUGHTS_BOARD_SIZE && y >= 0 && y < DRAUGHTS_BOARD_SIZE);
 }//判断是否位于界内
+static void draughts_print_command() {
+	if (Draughts_my_turn == DRAUGHTS_WHITE) {
+		for (int i = 0; i < Input_my.step; i++) {
+			Input_my.dir[i][0] = 7 - Input_my.dir[i][0];
+			Input_my.dir[i][1] = 7 - Input_my.dir[i][1];
+		}
+	}//若我方执白，需进行坐标旋转
+	printf("%d", Input_my.step);
+	for (int i = 0; i < Input_my.step; i++) printf(" %d,%d", Input_my.dir[i][0], Input_my.dir[i][1]);
+	printf("\n");
+	fflush(stdout);
+}//将获得的最终坐标按照格式输出
 static void draughts_board_spin(int board_spined[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]) {
 	for (int i = 0; i < DRAUGHTS_BOARD_SIZE / 2; i++) {
 		for (int j = 0; j < DRAUGHTS_BOARD_SIZE; j++) {
@@ -81,32 +98,30 @@ static void draughts_board_print(int board_printed[DRAUGHTS_BOARD_SIZE][DRAUGHTS
 	}
 }//将当前棋盘输出
 static void draughts_board_copy(int board_sub[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int board_copy[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]) {
-	int i, j;
-	for (i = 0; i < DRAUGHTS_BOARD_SIZE; i++)
-		for (j = 0; j < DRAUGHTS_BOARD_SIZE; j++)board_copy[i][j] = board_sub[i][j];
+	for (int i = 0; i < DRAUGHTS_BOARD_SIZE; i++)
+		for (int j = 0; j < DRAUGHTS_BOARD_SIZE; j++)board_copy[i][j] = board_sub[i][j];
 }//复制一份旧棋盘到棋盘的拷贝当中
 
-static void draughts_view_board(int board_viewed[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int* num_black, int* num_white, int dir_black[DRAUGHTS_CHESS_NUM][3], int dir_white[DRAUGHTS_CHESS_NUM][3]) {
-	*num_black = *num_white = 0;
+static void draughts_view_board(int board_viewed[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], struct draughts_info *board_info) {
 	for (int i = 0; i < DRAUGHTS_BOARD_SIZE; i++) {
 		for (int j = 0; j < DRAUGHTS_BOARD_SIZE; j++) {
 			if (board_viewed[i][j] < DRAUGHTS_EMPTY) {
-				dir_white[*num_white][0] = i;
-				dir_white[*num_white][1] = j;
+				board_info->dir_white[board_info->num_white][0] = i;
+				board_info->dir_white[board_info->num_white][1] = j;
 				if (i == 7) {
 					board_viewed[i][j] = DRAUGHTS_WHITE_KING;
-					dir_white[*num_white][2] = 1;
+					board_info->dir_white[board_info->num_white][2] = 1;
 				}
-				(*num_white)++;
+				board_info->num_white++;
 			}
 			else if (board_viewed[i][j] > DRAUGHTS_EMPTY) {
-				dir_black[*num_black][0] = i;
-				dir_black[*num_black][1] = j;
+				board_info->dir_black[board_info->num_black][0] = i;
+				board_info->dir_black[board_info->num_black][1] = j;
 				if (i == 0) {
 					board_viewed[i][j] = DRAUGHTS_BLACK_KING;
-					dir_black[*num_black][2] = 1;
+					board_info->dir_black[board_info->num_black][2] = 1;
 				}
-				(*num_black)++;
+				board_info->num_black++;
 			}
 		}
 	}
@@ -177,29 +192,27 @@ static double draughts_score(int board_scored[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOAR
 	double score = 0;
 	double value[5] = { 0 };
 	int Weight[5] = { 2,2,15,10,15 };//代表V01234的权重
-	int num_white, num_black;
-	int dir_white[DRAUGHTS_CHESS_NUM][3] = { 0 };
-	int dir_black[DRAUGHTS_CHESS_NUM][3] = { 0 };
-	draughts_view_board(board_scored, &num_black, &num_white, dir_black, dir_white);
+	struct draughts_info board_info;
+	draughts_view_board(board_scored, &board_info);
 	for (int i = 0; i < 2; i++) {
 		draughts_board_spin(board_scored);
 		if (i == 0) {
 			int value_b[3] = { 0 };
-			draughts_score_b(board_scored, num_white, dir_white, value_b);
+			draughts_score_b(board_scored, board_info.num_white, board_info.dir_white, value_b);
 			value[0] -= value_b[0] * 0.8;//消减对手的棋子基本分数所占的权重，使程序减少以一换一的次数
 			value[1] -= value_b[1];
 			value[2] -= value_b[2];
 		}
-		value[3] -= draughts_score_a(board_scored, i, num_white, dir_white);
+		value[3] -= draughts_score_a(board_scored, i, board_info.num_white, board_info.dir_white);
 		draughts_board_spin(board_scored);
 		if (i == 0) {
 			int value_b[3] = { 0 };
-			draughts_score_b(board_scored, num_black, dir_black, value_b);
+			draughts_score_b(board_scored, board_info.num_black, board_info.dir_black, value_b);
 			value[0] += value_b[0];
 			value[1] += value_b[1];
 			value[2] += value_b[2];
 		}
-		value[3] += draughts_score_a(board_scored, i, num_black, dir_black);
+		value[3] += draughts_score_a(board_scored, i, board_info.num_black, board_info.dir_black);
 		value[4] += draughts_score_c(board_scored);
 	}
 }
@@ -212,13 +225,13 @@ void draughts_start() {
 	else Draughts_my_turn = DRAUGHTS_WHITE;
 }
 
-static void draughts_place_main(int board_placed[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int step, int input_dir[10][2]) {
+static void draughts_place_main(int board_placed[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int step, int dir_input[10][2]) {
 	int from_x, from_y, mid_x, mid_y, to_x, to_y;
 	for (int i = 0; i < step - 1; i++) {
-		from_x = input_dir[i][0];
-		from_y = input_dir[i][1];
-		to_x = input_dir[i + 1][0];
-		to_y = input_dir[i + 1][1];
+		from_x = dir_input[i][0];
+		from_y = dir_input[i][1];
+		to_x = dir_input[i + 1][0];
+		to_y = dir_input[i + 1][1];
 		board_placed[to_x][to_y] = board_placed[from_x][from_y];
 		if (abs(from_x - to_x) == 2) {//判断走还是跳
 			mid_x = (from_x + to_x) / 2;
@@ -230,71 +243,59 @@ static void draughts_place_main(int board_placed[DRAUGHTS_BOARD_SIZE][DRAUGHTS_B
 }//对接收到的对方的走子指令进行移动
 void draughts_place() {
 	int step = 0;//代表录入所经过的格数
-	int input_dir[10][2] = {};
+	int dir_input[10][2] = {};
 	scanf("%d", &step);
-	for (int i = 0; i < step; i++) scanf("%d,%d", &input_dir[i][0], &input_dir[i][1]);
-	draughts_place_main(Draughts_board_main, step, input_dir);
+	for (int i = 0; i < step; i++) scanf("%d,%d", &dir_input[i][0], &dir_input[i][1]);
+	draughts_place_main(Draughts_board_main, step, dir_input);
 }
 
-int draughts_check_eat(int board_checked[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int dir_eat[DRAUGHTS_CHESS_NUM][2]) {
-	int to_x, to_y;//被吃子坐标
-	int jump_x, jump_y;//目标格坐标	
-	int num = 0;//记录可以发生吃子的棋子数量，若为0则代表无法发生吃子
-	int i, j;
-	int num_black, num_white;//代表当前黑白棋的个数
-	int dir_black[12][3] = { 0 };//代表当前黑白棋的坐标
-	int dir_white[12][3] = { 0 };//其中[0][1]为横纵坐标，[3]为是否成王
-	draughts_view_board(board_checked, &num_black, &num_white, dir_black, dir_white);//遍历棋盘
-	for (i = 0; i < num_black; i++) {
-		for (j = 0; j < 4; j++) {
-			to_x = dir_black[i][0] + Draughts_move_dir[j][0];
-			to_y = dir_black[i][1] + Draughts_move_dir[j][1];
-			jump_x = dir_black[i][0] + Draughts_eat_dir[j][0];
-			jump_y = dir_black[i][1] + Draughts_eat_dir[j][1];//获得坐标
-			if (draughts_is_in_bound(jump_x, jump_y) && board_checked[to_x][to_y] < DRAUGHTS_EMPTY && board_checked[jump_x][jump_y] == DRAUGHTS_EMPTY) {
-				dir_eat[num][0] = dir_black[i][0];
-				dir_eat[num][1] = dir_black[i][1];//记录可以发生吃子的棋子的坐标
-				num++;
-				break;
-			}
+static void draughts_try_move(int board_moved[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], struct draughts_command my_command, int depth, double *score_before, double *score_now) {
+	int board_copy[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE] = { 0 };
+	draughts_board_copy(board_moved, board_copy);
+	draughts_place_main(board_copy, my_command.step, my_command.dir);
+	if (depth == DRAUGHTS_DEPTH) {
+		if (depth % 2 == 0) draughts_board_spin(board_copy);//为了防止瞎改深度导致的被估值主体错误，保证被估值主体永远是己方
+		if (depth % 2 == 0)	*score_before = MIN(*score_before, draughts_score(board_copy));
+		else if (depth % 2 == 1) *score_before = MAX(*score_before, draughts_score(board_copy));
+		if (depth % 2 == 0) draughts_board_spin(board_copy);
+	}
+	else {
+		draughts_board_spin(board_copy);
+		draughts_turn_main(board_copy, depth + 1, score_now);
+	}
+}
+static void draughts_search_move(int board_sub[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int depth, double *score_before, double *score_now) {
+	int to_x, to_y;//要到达的坐标
+	int dir_now[2][2] = { 0 };//记录走过的坐标
+	int time;//判断枚举坐标方向
+	struct draughts_info board_info;
+	struct draughts_command my_command;
+	draughts_view_board(board_sub, &board_info);//遍历棋盘、
+	for (int i = 0; i < board_info.num_black; i++) {
+		if (board_info.dir_black[i][2] == 1) time = 4;//若被枚举棋子为王棋，则向4个方向枚举
+		else time = 2;//否则，仅向前方枚举
+		for (int j = 0; j < time; j++) {
+			to_x = board_info.dir_black[i][0] + Draughts_move_dir[j][0];
+			to_y = board_info.dir_black[i][1] + Draughts_move_dir[j][1];
+			if (draughts_is_in_bound(to_x, to_y) && board_sub[to_x][to_y] == DRAUGHTS_EMPTY) {
+				if (depth == 1) {//记录根部移动坐标：如果深度为1，记录坐标 
+					Draughts_dir_now[0][0] = board_info.dir_black[i][0];
+					Draughts_dir_now[0][1] = board_info.dir_black[i][1];
+					Draughts_dir_now[1][0] = to_x;
+					Draughts_dir_now[1][1] = to_y;
+				}
+				my_command.dir[0][0] = board_info.dir_black[i][0];
+				my_command.dir[0][1] = board_info.dir_black[i][1];
+				my_command.dir[1][0] = to_x;
+				my_command.dir[1][1] = to_y;
+				my_command.step = 2;
+				draughts_try_move(board_sub, my_command, depth, score_before, score_now);
+			}//传入得到的下一个棋盘、坐标组、深度、当前分数和上一层分数并进行模拟走子
 		}
 	}
-	return num;
-}
-void draughts_try_eat(int board_sub[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int eat_dir[12][2], int num_eat, int depth) {
-	void draughts_dfs_eat(struct draughts_dfs_reference *reference, int step);
+}//确定无法吃子之后尝试移动棋子
+static void draughts_dfs_eat(struct draughts_dfs_reference* reference, int step) {
 	void draughts_turn_main(int now_board[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]);
-	struct draughts_dfs_reference reference;
-	draughts_board_copy(board_sub, reference.board_reference);
-	for (int i = 0; i < num_eat; i++) {
-		reference.way_now[0][0] = eat_dir[i][0];
-		reference.way_now[0][1] = eat_dir[i][1];
-		draughts_dfs_eat(&reference, 1);
-	}
-	if (depth == 1) {//如果深度为1，则当前最大坐标即为走子坐标
-		input_my.step = reference.step_max;//记录经过格数
-		for (int i = 0; i < input_my.step; i++) {
-			input_my.dir[i][0] = reference.way_max[i][0];
-			input_my.dir[i][1] = reference.way_max[i][1];
-		}
-	}/*
-	else if (depth == DEPTH) {//若深度到达，进行估值并返回
-		if (depth % 2 == 0) SpinTheBoard(board_copy);
-		if (depth % 2 == 0)	*Scorenow = MIN(*Scorenow, score(board_copy));
-		else if (depth % 2 == 1) *Scorenow = MAX(*Scorenow, score(board_copy));
-		if (depth % 2 == 0) SpinTheBoard(board_copy);
-		times++;
-	}
-	else {//若深度未到且不为1，则进行下一层搜索
-		draughts_place_main(reference.board_reference, reference.step_max, reference.way_max);//对拷贝棋盘进行走子
-		SpinTheBoard(board_copy);
-		TURN(board_copy, depth + 1, Scorebe);
-	}*/
-}
-void draughts_try_move(int board_sub[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]) {
-
-}
-void draughts_dfs_eat(struct draughts_dfs_reference* reference, int step) {
 	int from_x = reference->way_now[step - 1][0];//起始坐标
 	int from_y = reference->way_now[step - 1][1];
 	int jump_x, jump_y;//目标坐标
@@ -305,7 +306,7 @@ void draughts_dfs_eat(struct draughts_dfs_reference* reference, int step) {
 	else ScoreNow = -10000;
 	double PastScore = 0;//分数缓存，用于判断当前分数是否发生改变
 	int board_copy[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE] = { 0 };
-	for (int j = 0; j < 4; j++)	{//枚举4个方向是否可吃
+	for (int j = 0; j < 4; j++) {//枚举4个方向是否可吃
 		jump_x = from_x + Draughts_eat_dir[j][0];
 		jump_y = from_y + Draughts_eat_dir[j][1];
 		mid_x = (from_x + jump_x) / 2;
@@ -355,19 +356,59 @@ void draughts_dfs_eat(struct draughts_dfs_reference* reference, int step) {
 		}*/
 	}
 }
-static void draughts_print_command() {
-	if (Draughts_my_turn == DRAUGHTS_WHITE) {
-		for (int i = 0; i < input_my.step; i++) {
-			input_my.dir[i][0] = 7 - input_my.dir[i][0];
-			input_my.dir[i][1] = 7 - input_my.dir[i][1];
+static void draughts_try_eat(int board_sub[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int eat_dir[12][2], int num_eat, int depth) {
+	void draughts_dfs_eat(struct draughts_dfs_reference *reference, int step);
+	void draughts_turn_main(int now_board[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]);
+	struct draughts_dfs_reference reference;
+	draughts_board_copy(board_sub, reference.board_reference);
+	for (int i = 0; i < num_eat; i++) {
+		reference.way_now[0][0] = eat_dir[i][0];
+		reference.way_now[0][1] = eat_dir[i][1];
+		draughts_dfs_eat(&reference, 1);
+	}
+	if (depth == 1) {//如果深度为1，则当前最大坐标即为走子坐标
+		Input_my.step = reference.step_max;//记录经过格数
+		for (int i = 0; i < Input_my.step; i++) {
+			Input_my.dir[i][0] = reference.way_max[i][0];
+			Input_my.dir[i][1] = reference.way_max[i][1];
+		}
+	}/*
+	else if (depth == DEPTH) {//若深度到达，进行估值并返回
+		if (depth % 2 == 0) SpinTheBoard(board_copy);
+		if (depth % 2 == 0)	*Scorenow = MIN(*Scorenow, score(board_copy));
+		else if (depth % 2 == 1) *Scorenow = MAX(*Scorenow, score(board_copy));
+		if (depth % 2 == 0) SpinTheBoard(board_copy);
+		times++;
+	}
+	else {//若深度未到且不为1，则进行下一层搜索
+		draughts_place_main(reference.board_reference, reference.step_max, reference.way_max);//对拷贝棋盘进行走子
+		SpinTheBoard(board_copy);
+		TURN(board_copy, depth + 1, Scorebe);
+	}*/
+}
+static int draughts_check_eat(int board_checked[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int dir_eat[DRAUGHTS_CHESS_NUM][2]) {
+	int to_x, to_y;//被吃子坐标
+	int jump_x, jump_y;//目标格坐标	
+	int num = 0;//记录可以发生吃子的棋子数量，若为0则代表无法发生吃子
+	struct draughts_info board_info;
+	draughts_view_board(board_checked, &board_info);//遍历棋盘
+	for (int i = 0; i < board_info.num_black; i++) {
+		for (int j = 0; j < 4; j++) {
+			to_x = board_info.dir_black[i][0] + Draughts_move_dir[j][0];
+			to_y = board_info.dir_black[i][1] + Draughts_move_dir[j][1];
+			jump_x = board_info.dir_black[i][0] + Draughts_eat_dir[j][0];
+			jump_y = board_info.dir_black[i][1] + Draughts_eat_dir[j][1];//获得坐标
+			if (draughts_is_in_bound(jump_x, jump_y) && board_checked[to_x][to_y] < DRAUGHTS_EMPTY && board_checked[jump_x][jump_y] == DRAUGHTS_EMPTY) {
+				dir_eat[num][0] = board_info.dir_black[i][0];
+				dir_eat[num][1] = board_info.dir_black[i][1];//记录可以发生吃子的棋子的坐标
+				num++;
+				break;
+			}
 		}
 	}
-	printf("%d", input_my.step);
-	for (int i = 0; i < input_my.step; i++) printf(" %d,%d", input_my.dir[i][0], input_my.dir[i][1]);
-	printf("\n");
-	fflush(stdout);
-}
-static void draughts_turn_main(int now_board[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]) {
+	return num;
+}//返回当前局面能发生吃子的棋子个数
+static void draughts_turn_main(int now_board[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int depth, double *score_before) {
 	//先检查是否存在有吃必吃
 		//若存在则寻找有多吃多的路线
 			//若有多吃多存在多条则对每一条进行搜索并估值
@@ -375,16 +416,19 @@ static void draughts_turn_main(int now_board[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD
 		//对每一个行走后进行翻转并向下传递
 	int draughts_check_eat(int board_checked[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int dir_eat[DRAUGHTS_CHESS_NUM][2]);
 	void draughts_try_eat(int board_sub[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int eat_dir[12][2], int num_eat, int depth);
-	void draughts_try_move(int board_sub[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]);
+	void draughts_search_move(int board_sub[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int depth, double *score_before, double *score_now);
+	double score_now;//新建该层分数
 	int dir_eat[DRAUGHTS_CHESS_NUM][2] = { 0 };//向内层传递可以发生吃子的棋子坐标
 	int num_eat = draughts_check_eat(now_board, dir_eat);//记录可以发送吃子的棋子个数
-	if (num_eat != 0) draughts_try_eat(now_board, dir_eat, num_eat, 1);
-	else (draughts_try_move(now_board));
+	if (num_eat != 0) draughts_try_eat(now_board, dir_eat, num_eat, depth);
+	else draughts_search_move(now_board, depth, score_before, &score_now);
+
 }
 void draughts_turn() {
 	if (Draughts_my_turn == DRAUGHTS_WHITE)draughts_board_spin(Draughts_board_main);
-	draughts_turn_main(Draughts_board_main);
-	draughts_place_main(Draughts_board_main, input_my.step, input_my.dir);
+	double score_now;
+	draughts_turn_main(Draughts_board_main, 1, &score_now);
+	draughts_place_main(Draughts_board_main, Input_my.step, Input_my.dir);
 	draughts_print_command();
 	if (Draughts_my_turn == DRAUGHTS_WHITE)draughts_board_spin(Draughts_board_main);
 }
@@ -392,21 +436,13 @@ void draughts_turn() {
 int draughts_loop() {
 	char command[10] = {};
 	scanf("%s", command);
-	if (strcmp(command, "START") == 0) {
-		draughts_start();
-	}
-	else if (strcmp(command, "PLACE") == 0) {
-		draughts_place();
-	}
-	else if (strcmp(command, "TURN") == 0) {
-		draughts_turn();
-	}
-	else if (strcmp(command, "END") == 0) {
-		return 0;
-	}
-	return 1;
+	if (strcmp(command, "START") == 0) draughts_start();
+	else if (strcmp(command, "PLACE") == 0) draughts_place();
+	else if (strcmp(command, "TURN") == 0) draughts_turn();
+	else if (strcmp(command, "END") == 0) return 1;
+	return 0;
 }
 int main() {
-	while (draughts_loop())draughts_board_print(Draughts_board_main);
+	while (1 - draughts_loop()) draughts_board_print(Draughts_board_main);
 	return 0;
 }
