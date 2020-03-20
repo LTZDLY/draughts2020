@@ -2,6 +2,7 @@
 #include<stdio.h>
 #include<string.h>
 #include<math.h>
+#include<time.h>
 #define DRAUGHTS_CHESS_NUM 12		//棋盘上一方最多拥有的棋子数量
 #define DRAUGHTS_BOARD_SIZE 8		//棋盘大小
 #define DRAUGHTS_EMPTY 0			//无棋子
@@ -9,15 +10,15 @@
 #define DRAUGHTS_WHITE -1			//白色棋子
 #define DRAUGHTS_BLACK_KING 2		//黑色王棋
 #define DRAUGHTS_WHITE_KING -2		//白色王棋
-#define DRAUGHTS_DEPTH 8			//搜索深度
+#define DRAUGHTS_DEPTH 6			//搜索深度
 #define MAX(a,b) (a)>(b)?(a):(b)	//求最大值函数
 #define MIN(a,b) (a)<(b)?(a):(b)	//求最小值函数
 //全局变量声明
-static long Draughts_times = 0;		//代表该局面下搜索到达所需的深度时的分支总数
+static long Draughts_times = 0;		//调试用，代表该局面下搜索到达所需的深度时的分支总数
 static int Draughts_turn_my = 0;	//记录游戏中己方所行棋
 static int Draughts_dir_move[4][2] = { {-1, -1}, {-1, 1}, {1, -1}, {1, 1} };	//走子坐标
 static int Draughts_dir_eat[4][2] = { {-2, -2}, {-2, 2}, {2, -2}, {2, 2} };		//吃子坐标
-//结构体声明							/*                           */
+//结构体声明							/*    ↖       ↗       ↙       ↘  */
 struct draughts_dfs_reference {//专门用来存放dfs方法所需传递的参数的结构体
 	int board_reference[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE] = { 0 };//拷贝棋盘
 	int flag_eat[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE] = { 0 };//吃子标记
@@ -40,7 +41,7 @@ struct draughts_info {//用于记录当前棋盘上所有棋子个数和坐标
 };
 static struct draughts_command Input_my;//用于记录我方走子的全局结构体
 int Draughts_board_main[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE] = { { 0,-1, 0,-1, 0,-1, 0,-1 },//全局棋盘
-																	  {-1, 0,-1, 0, 0, 0,-1, 0 },
+																	  {-1, 0,-1, 0,-1, 0,-1, 0 },
 																	  { 0,-1, 0,-1, 0,-1, 0,-1 },
 																	  { 0, 0, 0, 0, 0, 0, 0, 0 },
 																	  { 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -51,17 +52,17 @@ int Draughts_board_main[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE] = { { 0,-1, 0,
 
 	/*尝试移动棋子*/
 static void draughts_move_try(int board_moved[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]/*被移动棋盘*/, struct draughts_command my_command/*移动命令结构体*/, int depth/*当前搜索深度*/, double *score_now/*当前层分数*/);
-/*搜索可移动棋子*/
+	/*搜索可移动棋子*/
 static void draughts_move_search(int board_sub[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]/*被搜索棋盘*/, int depth/*当前搜索深度*/, double *score_before/*上一层分数*/, double *score_now/*当前层分数*/);
-/*比较有多吃多最优路径*/
+	/*比较有多吃多最优路径*/
 static void draughts_eat_cmp(struct draughts_dfs_reference* reference/*dfs方法所需所有参数*/);
-/*使用dfs方法搜索有多吃多*/
+	/*使用dfs方法搜索有多吃多*/
 static void draughts_eat_dfs(struct draughts_dfs_reference* reference/*dfs方法所需所有参数*/, int step/*dfs深度*/);
-/*尝试吃子*/
+	/*尝试吃子*/
 static void draughts_eat_try(int board_sub[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]/*被移动棋盘*/, int eat_dir[DRAUGHTS_CHESS_NUM][2]/*记录可以发生吃子的棋子坐标*/, int num_eat, int depth/*当前搜索深度*/, double *score_before/*上一层分数*/, double *score_now/*当前层分数*/);
-/*搜索吃否存在有吃必吃，返回当前局面能发生吃子的棋子个数*/
+	/*搜索吃否存在有吃必吃，返回当前局面能发生吃子的棋子个数*/
 static int draughts_eat_check(int board_checked[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]/*被检查棋盘*/, int dir_eat[DRAUGHTS_CHESS_NUM][2]/*记录可以发生吃子的棋子坐标*/);
-/*TURN函数主体部分*/
+	/*TURN函数主体部分*/
 static void draughts_turn_main(int board_now[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]/*被执行棋盘*/, int depth/*当前搜索深度*/, double *score_before/*上一层分数*/);
 
 //独立函数部分
@@ -70,7 +71,7 @@ static void draughts_turn_main(int board_now[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD
 static int draughts_approved_bound(int x/*横坐标*/, int y/*纵坐标*/) {
 	return (x >= 0 && x < DRAUGHTS_BOARD_SIZE && y >= 0 && y < DRAUGHTS_BOARD_SIZE);
 }
-/*检查是否符合dfs方法的要求*/
+	/*检查是否符合dfs方法的要求*/
 static int draughts_approved_dfs(struct draughts_dfs_reference *reference, int mid_x, int mid_y, int jump_x, int jump_y) {
 	return (reference->flag_eat[mid_x][mid_y] == 0 && draughts_approved_bound(jump_x, jump_y) && reference->board_reference[mid_x][mid_y] < DRAUGHTS_EMPTY && (reference->board_reference[jump_x][jump_y] == DRAUGHTS_EMPTY || (jump_x == reference->dir_now[0][0] && jump_y == reference->dir_now[0][1])));
 }//是否未被标记、位于界内，发生吃子，目标格为空(目标格为原棋子所在格是目标格为空的一个特例)
@@ -87,7 +88,7 @@ static void draughts_print_command() {
 	printf("\n");
 	fflush(stdout);
 }
-/*旋转棋盘和执子方*/
+	/*旋转棋盘和执子方*/
 static void draughts_board_spin(int board_spined[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]/*被旋转棋盘*/) {
 	for (int i = 0; i < DRAUGHTS_BOARD_SIZE / 2; i++) {
 		for (int j = 0; j < DRAUGHTS_BOARD_SIZE; j++) {
@@ -97,7 +98,7 @@ static void draughts_board_spin(int board_spined[DRAUGHTS_BOARD_SIZE][DRAUGHTS_B
 		}//交换两个位置的棋子并变换棋子归属方
 	}
 }
-/*将棋盘可视化输出，用于调试*/
+	/*调试用，将棋盘可视化输出*/
 static void draughts_board_print(int board_printed[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]/*被输出棋盘*/) {
 	for (int i = 0; i < DRAUGHTS_BOARD_SIZE; i++) {
 		for (int j = 0; j < DRAUGHTS_BOARD_SIZE; j++) {
@@ -122,7 +123,7 @@ static void draughts_board_print(int board_printed[DRAUGHTS_BOARD_SIZE][DRAUGHTS
 		printf("\n");
 	}
 }
-/*拷贝棋盘副本*/
+	/*拷贝棋盘副本*/
 static void draughts_board_copy(int board_sub[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int board_copy[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]) {
 	for (int i = 0; i < DRAUGHTS_BOARD_SIZE; i++)
 		for (int j = 0; j < DRAUGHTS_BOARD_SIZE; j++)board_copy[i][j] = board_sub[i][j];
@@ -187,7 +188,7 @@ static int draughts_score_a(int board_a[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE
 	}
 	return value_a;
 }
-/*估值模块二：基本分数V0、高度和区位分数V1、三角阵型V2*/
+	/*估值模块二：基本分数V0、高度和区位分数V1、三角阵型V2*/
 static void draughts_score_b(int board_b[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE], int num_chess, int dir_chess[DRAUGHTS_CHESS_NUM][3], int *value) {
 	int flag_jump = 0;//可移动标记，代表某棋子前方是否可移动或为对方的棋子
 	int flag_def = 0;//防守标记，代表某棋子后方是否有自己方的棋子
@@ -211,7 +212,7 @@ static void draughts_score_b(int board_b[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZ
 		if (dir_chess[i][0] > 1 && dir_chess[i][1] > 1 && dir_chess[i][0] < 6 && dir_chess[i][1] < 6) value[1] += 10;//棋子区位分数，中间的棋子分数高
 	}
 }
-/*估值模块三：边线棋子V4*/
+	/*估值模块三：边线棋子V4*/
 static int draughts_score_c(int board_c[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]) {
 	int value_c = 0;
 	if (board_c[1][0] == DRAUGHTS_WHITE)value_c--;
@@ -220,7 +221,7 @@ static int draughts_score_c(int board_c[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE
 	if (board_c[7][0] == DRAUGHTS_BLACK)value_c++;//边线棋子的优势分数，距对方底线近的边线棋子威胁大，距己方底线近的边线棋子移动受到限制
 	return value_c;
 }
-/*估值函数主体*/
+	/*估值函数主体*/
 static double draughts_score(int board_scored[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD_SIZE]/*被估值棋盘*/) {
 	double score = 0;
 	double value[5] = { 0 };//V[0]代表每颗棋子的基本分数，V[1]为棋子的高度和区位分数，V[2]为三角阵型分数，V[3]为列队阵型分数,V[4]为底线边棋的优势或劣势分数
@@ -288,7 +289,7 @@ static void draughts_place_main(int board_placed[DRAUGHTS_BOARD_SIZE][DRAUGHTS_B
 		board_placed[from_x][from_y] = DRAUGHTS_EMPTY;
 	}
 }
-/*对接受的PLACE命令进行响应*/
+	/*对接受的PLACE命令进行响应*/
 void draughts_place() {
 	int step = 0;//所经过的路径长度
 	int dir_input[10][2] = {};//所经过的坐标
@@ -471,15 +472,22 @@ static void draughts_turn_main(int board_now[DRAUGHTS_BOARD_SIZE][DRAUGHTS_BOARD
 	if (depth % 2 == 0)	*score_before = MAX(*score_before, score_now);//进行minimax取值
 	else if (depth % 2 == 1) *score_before = MIN(*score_before, score_now);
 }
-/*对接受的TURN命令进行响应*/
+	/*对接受的TURN命令进行响应*/
 void draughts_turn() {
 	if (Draughts_turn_my == DRAUGHTS_WHITE)draughts_board_spin(Draughts_board_main);//若我方执白，旋转棋盘保证程序认为我方执黑
 	double score_temp = 10000;//该值无实际意义，仅用于填充缺少的参数
-	Draughts_times = 0;//初始化分支总数，用于调试
+	Draughts_times = 0;//用于调试，初始化分支总数
+	clock_t time_start, time_end, time;
+	time_start = clock();
 	draughts_turn_main(Draughts_board_main, 1, &score_temp);//进行搜索并返回坐标至全局结构体中
+	time_end = clock();
 	draughts_place_main(Draughts_board_main, Input_my.step, Input_my.dir);//从全局结构体中取出坐标进行走子
 	draughts_print_command();//输出指令
-	printf("%lf %ld\n", score_temp, Draughts_times);//输出分支和估值，用于调试
+	time = time_end - time_start;
+	printf("%lf %ld\n", score_temp, Draughts_times);//用于调试，输出分支和估值
+	if (((float)time) / CLOCKS_PER_SEC > 2)printf("WARNING\n");
+	printf("time=%lf s\n", ((float)time) / CLOCKS_PER_SEC);
+	fflush(stdout);
 	if (Draughts_turn_my == DRAUGHTS_WHITE)draughts_board_spin(Draughts_board_main);
 }
 
