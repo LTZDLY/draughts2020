@@ -115,6 +115,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Draughts2020.cc" />
     <ClCompile Include="源.cpp" />
   </ItemGroup>
   <ItemGroup>
